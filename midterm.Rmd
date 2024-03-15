@@ -1,0 +1,215 @@
+---
+title: "Midterm Project"
+author: "Ting Ho Marcus Cheung"
+date: "March 10, 2024"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+## Introduction
+Most Canadian cities are very car-centric, which means that personal vehicles are necessities and core of day to day life. Ever since the global pandemic in 2020, the economy has been performing poorly throughout the continent: low economic growth, high inflation, and layoffs have been the norm for the past 4 years. Since cars are vital for day to day life here and are an expensive purchase, purchasing brand new vehicles have become out of reach for most people. Thus, the question arises:
+
+How do we predict used car prices based on their year of production, body type, brand/model, engine displacement, drivetrain, and odometer kilometers?
+
+Specifically, I want to find out the speed of depreciation on vehicles with time together with other factors. I believe answering this question will allow me to find the best time to purchase a used vehicle, find the most reliable (depreciation rate wise) vehicle, and evaluate the different aspects that affect prices of cars to make the best decisions financially. Lastly, by building a model of pricing with these factors, I can potentially help car sellers settle down with a price to sell their cars.
+
+## Method
+To answer this question, I will use a dataset I found of Kaggle: "Used cars listings for US & Canada" and use only the dataset for Canada. The link is attached to the bottom of this report. The dataset contains data of online listing of cars from that were manufactured in 1981 to 2022. As stated on Kaggle, "Individual listing records show year, make, model and trim, with VIN-level histories, showing the most recent time the car showed up online back to the earliest, with every change that occurred over that time". Furthermore, the dataset is collected across 8 years, where the latest was collected in 2022, which means that the first data was collected around 2014, which means that a car manufactured in 2013 might not be 9 years old when it was included in the dataset. Therefore, when looking at depreciation, I will strictly look at cars that appeared more than once. After exploring trends and building appropriate models using the data, I will parse through Autotrader to get come current listings to test the accuracy of the conclusion drawn from the Kaggle dataset.
+
+# Data exploration
+I downloaded the data from kaggle and loaded it into an RMD file and stored it in the variable "canada_data". After running some summary functions such as ls, head, tail and nrow , I found that the earliest car ever produced was in 1981 and the latest was in 2022. The data has the 21 following variables, which are "body_type", "city", "drivetrain", "engine_block", "engine_size", "fuel_type", "id", "make", "miles", "model", "price", "seller_name", "state", "stock_no", "street", "transmission", "trim", vehicle_type", "vin", "year", and "zip". The variable names are very self explainatory except id, which is a unique identifier for the listing. I did find some problems, that I will need to address in the data cleaning and wrangling process. There are a total of 393603 rows in the data.
+
+```{r echo = FALSE}
+library(dplyr)
+library(tidyverse)
+library(knitr)
+library(ggplot2)
+canada_data <- read.csv('ca-dealers-used.csv')
+```
+
+```{r echo = FALSE}
+min(canada_data$year, na.rm = TRUE)
+max(canada_data$year, na.rm = TRUE)
+ls(canada_data)
+nrow(canada_data)
+head(canada_data)
+filter(canada_data, year < 1990)
+filter(canada_data, year == 1981)
+```
+
+# Data Cleaning and Wrangling
+After looking at the older cars in the data, I noticed that a lot of them are not regular cars. For example, one of the oldest cars in the dataset is a Porsche Turbo, which is listed for 120,000 Canadian Dollars, which is very expensive. This is because it is considered a classic car, which means it is more of a collection than a means of transportation. Therefore, the first step I did was to exclusively select vehicles that were manufactured after the year 2005. Since I was performing modelling, I deducted 2005 from the year variable in the filtered dataset so it would start at 1 (2006) and end at 17 (2022) to avoid large numbers.
+
+After that, I found some problems with the data as there are vehicles listed more than once in the dataset on the same year, same price, same mileage, but different dealers. For example, the 4th and 5th entry are both the same Acura NSX listed in Drive Autogroup and Acura Pickering. Therefore, I kept only 1 listing of the same vehicle (vin) at he same price and miles by using the distinct function.
+
+Because I'm only interested in a selected few variables, I only kept the selected variables:
+
+* vin
+* price
+* miles (is actually in kms since its Canada)
+* year
+* make
+* model
+* body_type
+* drivetrain
+* engine_size
+* fuel_type
+
+After performing further tests and checks for anomalies in the data, I found that many rows have missing data and they are represented as NA. Since I have large amounts of data, I removed all rows with NA. After this, there are only 157793 entries left.
+
+```{r echo = FALSE}
+keeps <- c("vin", "price", "miles", "year", "make", "model", "body_type", "drivetrain", "engine_size", "fuel_type")
+data <- canada_data[, keeps]
+data <- filter(data, data$year >= 2005, na.rm = TRUE)
+data$year = data$year - 2005
+cleaned_data <- data %>% distinct(vin, miles, .keep_all = TRUE)
+cleaned_data <- na.omit(cleaned_data)
+duplicate_vins <- cleaned_data %>%
+  group_by(vin) %>%
+  filter(n() > 1) %>%
+  ungroup()
+```
+
+Here is a sneak peak of the cleaned data
+```{r echo = FALSE}
+kable(head(cleaned_data), align = "c")
+```
+
+Furthermore, in order to explore the association between increased mileage and depreciation, I filtered out a dataset which only includes listing of vehicles that appeared more than once but at different prices and mileage. There are 2601 listings in the dataset. Here is a sneak peak of it.
+```{r echo = FALSE}
+kable(head(duplicate_vins), align = "c")
+```
+
+# Data distribution
+I will plot some graphs to figure out the distribution of my cleaned data first.
+
+```{r echo = FALSE}
+ggplot(cleaned_data, aes(x = price)) +
+  geom_histogram(bins = 100) +
+  labs(x = "Price", y = "Frequency", title = "Price Distribution")
+```
+As shown in the price distribution histogram, as expected, most cars fall in between 0 to 100,000 dollar range. Specifically, between 10,000 to 40,000 CAD.
+
+```{r echo = FALSE}
+ggplot(cleaned_data, aes(x = year + 2005)) +
+  geom_histogram(bins = 100) +
+  labs(x = "Year", y = "Frequency", title = "Year Distribution")
+```
+As mentioned earlier, the earliest year in my cleaned data is 2005 and the latest is 2021. The most common years are the years between 2015 and 2020, as this data set was fetched in those years.
+
+```{r echo = FALSE}
+ggplot(cleaned_data, aes(x = miles)) +
+  geom_histogram(bins = 100) +
+  labs(x = "Mileage", y = "Frequency", title = "Mileage Distribution")
+```
+As shown, most of the cars have low mileage.
+
+```{r echo = FALSE}
+ggplot(cleaned_data,aes(x = make)) +
+  geom_bar() +
+  labs(x = "Brand", y = "Frequency", title = "Brand Distribution")
+```
+There are many brands, but only around 15 of them have decent quantity.
+
+```{r echo = FALSE}
+make_freq <- table(cleaned_data$make)
+top_15_makes <- names(sort(make_freq, decreasing = TRUE)[1:15])
+cleaned_data_top_15 <- cleaned_data[cleaned_data$make %in% top_15_makes, ]
+ggplot(cleaned_data_top_15, aes(x = make)) +
+  geom_bar() +
+  labs(x = "Brand", y = "Frequency", title = "Brand Distribution")
+```
+As shown in the brand bar graph, these are the most popular 15 brands. Unsurprisingly, Ford is the most popular brand.
+
+```{r echo = FALSE}
+ggplot(cleaned_data, aes(x = engine_size)) +
+  geom_histogram(bins = 30) +
+  labs(x = "Engine Size", y = "Frequency", title = "Engine Displacement Distribution")
+```
+As shown in histogram, the most frequent engine size is around 2, this could be because 2 liter engines are exceedingly popular nowadays.
+
+#Preliminary models
+First, I will address the elephant in the room by plotting a graph to see the relationship between the year of production vs the price:
+```{r echo = FALSE}
+plot(cleaned_data$year, cleaned_data$price,
+     main = "Scatter Plot of Price vs. Year",
+     xlab = "Year",
+     ylab = "Price",
+     pch = 16,
+)
+fit <- lm(price ~ year, data = cleaned_data)
+abline(fit, col = "red")
+```
+As shown from the red line, there is a trend that price increases as the model gets newer. This is expected because of depreciation of old cars and inflation in cost of things.
+
+```{r echo = FALSE}
+plot(cleaned_data$miles, cleaned_data$price,
+     main = "Scatter Plot of Price vs. Mileage(kms)",
+     xlab = "Mileage",
+     ylab = "Price",
+     pch = 16,
+)
+fit <- lm(price ~ engine_size, data = cleaned_data)
+abline(fit, col = "red")
+```
+There is a strong negative relationship betwewen miles and price as shown in the scatterplot. This is intuitive because cars depreciate the more you drive them.
+
+```{r echo = FALSE}
+plot(cleaned_data$engine_size, cleaned_data$price,
+     main = "Scatter Plot of Price vs. Engine Displacement",
+     xlab = "Enging Displacement",
+     ylab = "Price",
+     pch = 16,
+)
+fit <- lm(price ~ engine_size, data = cleaned_data)
+abline(fit, col = "red")
+```
+As shown in scatterplot, there is a positive relationship between the engine displacement and the year. Something to look out for, is the cluster of engine displacement of 0, because they are electric cars, which may need to be addressed in the final project.
+
+
+```{r echo = FALSE}
+top_8_makes <- names(sort(make_freq, decreasing = TRUE)[1:8])
+cleaned_data_top_8 <- cleaned_data[cleaned_data$make %in% top_8_makes, ]
+boxplot(price ~ make, data = cleaned_data_top_8,
+        main = "Boxplot of Price for Top 8 Car Brands",
+        xlab = "Car Brand",
+        ylab = "Price"
+)
+```
+As shown in the box plot of the price distribution of the top 5 brands, I notice that different brands have different distributions. BMW has higher prices in general as its mean and quantiles are all higher than the other 7 brands.
+
+```{r echo = FALSE}
+boxplot(price ~ body_type, data = cleaned_data,
+        main = "Boxplot of Price for different body types",
+        xlab = "Body type",
+        ylab = "Price"
+)
+```
+As shown in the boxplot above, different body types correspond to different price ranges.
+
+```{r echo = FALSE}
+boxplot(price ~ drivetrain, data = cleaned_data,
+        main = "Boxplot of Price for Top 5 Car Brands",
+        xlab = "Drive Train",
+        ylab = "Price"
+)
+```
+For drivetrain, RWD and 4WD are more expensive than 4wd in general. Furthermore, there is a large amount of listings that didn't label the drivetrain of the car.
+
+# Summary
+I have found substantial support that there is correlation between different factors of a car and its listed price, which in turns mean I may be able to build a model to predict the price based on other information given.
+
+However, there are some problems already identified in my midterm report.
+
+Firstly, electric cars have an engine displacement of 0, which can scew results.
+
+Secondly, when exploring the relationships, particularly year, engine displacement, and mileage, I fitted a linear model and looked at their relationship. The true relationship might not be linear. Nonetheless, the linear plots give an idea of how the variables affects price.
+
+Lastly, there may be multicollinearity and confounding in the variables. For example, year definitely affects mileage and brand affects engine displacement (luxury brands usually have bigger engines by intuition ).
+
+In the final report, I will aim to address the above issues stated to formulate a good and precise model. After that, I will use a web scraper to scrape some data from autotrader.ca and use the data to test the accuracy of my model and answer the problem "How do we predict used car prices based on their year of production, body type, brand/model, engine displacement, drivetrain, and odometer kilometers?".
+
+# Data 
+data: https://www.kaggle.com/datasets/rupeshraundal/marketcheck-automotive-data-us-canada
